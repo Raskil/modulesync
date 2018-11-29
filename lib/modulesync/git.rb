@@ -88,21 +88,22 @@ module ModuleSync
       end
     end
 
-    def self.bump(repo, m, message, module_root, changelog = false)
+    def self.bump(repo, m, message, module_root, changelog = false, branch, opts_push)
       new = m.bump!
       puts "Bumped to version #{new}"
       repo.add('metadata.json')
       update_changelog(repo, new, message, module_root) if changelog
       repo.commit("Release version #{new}")
-      repo.push
+      repo.push('origin', branch, opts_push)
       new
     end
 
-    def self.tag(repo, version, tag_pattern)
+    def self.tag(repo, version, tag_pattern, branch, opts_push)
       tag = tag_pattern % version
+      opts_push.merge(:tags => true)
       puts "Tagging with #{tag}"
       repo.add_tag(tag)
-      repo.push('origin', tag)
+      repo.push('origin', branch, opts_push)
     end
 
     def self.checkout_branch(repo, branch)
@@ -118,6 +119,7 @@ module ModuleSync
       message = options[:message]
       repo = ::Git.open(module_root)
       branch = checkout_branch(repo, options[:branch])
+      push_branch = branch
       files.each do |file|
         if repo.status.deleted.include?(file)
           repo.remove(file)
@@ -137,16 +139,17 @@ module ModuleSync
         repo.commit(message, opts_commit)
         if options[:remote_branch]
           if remote_branch_differ?(repo, branch, options[:remote_branch])
-            repo.push('origin', "#{branch}:#{options[:remote_branch]}", opts_push)
+            push_branch = "#{branch}:#{options[:remote_branch]}"
+            repo.push('origin', push_branch, opts_push)
           end
         else
-          repo.push('origin', branch, opts_push)
+          repo.push('origin', push_branch, opts_push)
         end
         # Only bump/tag if pushing didn't fail (i.e. there were changes)
         m = Blacksmith::Modulefile.new("#{module_root}/metadata.json")
         if options[:bump]
-          new = bump(repo, m, message, module_root, options[:changelog])
-          tag(repo, new, options[:tag_pattern]) if options[:tag]
+          new = bump(repo, m, message, module_root, options[:changelog], push_branch, opts_push)
+          tag(repo, new, options[:tag_pattern], push_branch, opts_push) if options[:tag]
         end
       rescue ::Git::GitExecuteError => git_error
         if git_error.message =~ /working (directory|tree) clean/
